@@ -1,0 +1,12 @@
+[package]
+name = "placeit-assistant"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+term_cursor = "0.2.1"
+term_size = "0.3.2"
+kusprint = "1.0.1"
+itertools = "0.12.1"
+regex = "1.10.4"
