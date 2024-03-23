@@ -2,6 +2,7 @@ use itertools::Itertools;
 use kusprint::*;
 use regex::Regex;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 use std::ops::RangeInclusive;
 
@@ -17,9 +18,17 @@ enum Slot {
     Range(RangeInclusive<i32>),
 }
 
+#[derive(Debug)]
+enum FindError {
+    Frozen,
+    GameWon,
+    AlreadyPlaced,
+    OutOfRange(usize),
+}
+
 enum PlaceItError {
     SlotTaken,
-    GameOver
+    GameOver,
 }
 
 struct PlaceIt {
@@ -28,42 +37,54 @@ struct PlaceIt {
 }
 
 impl PlaceIt {
-    fn new(slots: Vec<Slot>) -> Self{
-        PlaceIt { slots: slots, frozen: false }
+    fn new(slots: Vec<Slot>) -> Self {
+        PlaceIt {
+            slots: slots,
+            frozen: false,
+        }
     }
 
-    fn find_best_placement(&self, val: i32) -> Option<usize> {
+    fn find_best_placement(&self, val: i32) -> Result<usize, FindError> {
+        use FindError::*;
         if self.frozen {
-            return None;
+            return Err(Frozen);
         }
 
-        if self.slots.iter().all(|s| match s { Slot::Set(_) => true, Slot::Range(_) => false }) {
-            return None; // game already won, board is all set
-        } else if self.slots.iter().all(|s| match s { Slot::Set(set) => val == *set, Slot::Range(_) => false }) {
-            return None; // value already on board
+        if self.slots.iter().all(|s| match s {
+            Slot::Set(_) => true,
+            Slot::Range(_) => false,
+        }) {
+            return Err(GameWon); // game already won, board is all set
+        } else if self.slots.iter().all(|s| match s {
+            Slot::Set(set) => val == *set,
+            Slot::Range(_) => false,
+        }) {
+            return Err(AlreadyPlaced); // value already on board
         }
 
-        let res = self.slots.binary_search_by(|other| match other {
+        let res = self.slots.binary_search_by(|probe| match probe {
             Slot::Range(r) => {
                 if r.contains(&val) {
                     return Ordering::Equal;
-                } else if *r.start() < val {
+                } else if *r.end() < val {
                     return Ordering::Less;
-                } else {
+                } else if *r.start() > val {
                     return Ordering::Greater;
+                } else {
+                    unreachable!()
                 }
             }
             Slot::Set(set) => {
-                return val.cmp(set);
+                return set.cmp(&val);
             }
         });
 
         match res {
             Ok(idx) => {
-                return Some(idx);
+                return Ok(idx);
             }
-            Err(_) => {
-                return None;
+            Err(v) => {
+                return Err(OutOfRange(v));
             }
         }
     }
@@ -139,9 +160,7 @@ impl PlaceIt {
 
             let gen_iter =
                 match PlaceIt::gen_slots(x.len() as u32, lower.min(upper)..=upper.max(lower)) {
-                    Some(slots) => {
-                        slots.into_iter().map(|s| s.to_owned().clone())
-                    }
+                    Some(slots) => slots.into_iter().map(|s| s.to_owned().clone()),
                     None => {
                         self.frozen = true;
                         return Err(PlaceItError::GameOver);
@@ -208,6 +227,8 @@ fn flush_stdout() {
 }
 
 fn main() {
+    let mut history: HashMap<u32, (u32, Vec<i32>)> = HashMap::new();
+
     let mut game = PlaceIt::new(PlaceIt::gen_slots(SLOTS_COUNT, VAL_RANGE.clone()).unwrap());
     println!("PlaceIt-Assistant shell (h for help):");
     println!(
@@ -221,6 +242,7 @@ fn main() {
 
     let place_regex = Regex::new(r"(?:p|place) \d+ \d+").unwrap();
     let find_regex = Regex::new(r"(?:f|find) \d+").unwrap();
+    let fplace_regex = Regex::new(r"(?:F|fplace) \d+").unwrap();
 
     loop {
         stdin()
@@ -233,7 +255,9 @@ fn main() {
                 println!("h (help)                   display this message");
                 println!("p (place) <slot> <value>   place the number in a slot");
                 println!("f (find) <value>           find the best slot for a number");
-                println!("n (new)                    reset state, creating new game");
+                println!("F (fplace) <value>         find the best slot for a number and places it there");
+                println!("n (new)                    reset state, starting a new game and adding the current result to history");
+                println!("H (history)               display history, in format <score>: <count> [list of last set nums for this score], skipping scores that were not yet achieved");
                 println!("s (slots)                  todo - set slots count");
                 println!("r (range)                  todo - set value range");
                 println!("l (list)                   list slots");
@@ -249,24 +273,25 @@ fn main() {
                     let idx_res = split[1].parse::<usize>();
                     let val_res = split[2].parse::<i32>();
                     match (idx_res, val_res) {
-                        (Ok(idx), Ok(val)) => {
-                            match game.place((idx - 1) as usize, val) {
-                                Ok(_) => (),
-                                Err(e) => match e {
-                                    PlaceItError::SlotTaken => {
-                                        eprintln!("ERR: Slot {} already set, not changing", idx + 1);
-                                    },
-                                    PlaceItError::GameOver => {
-                                        eprintln!("ERR: Cannot generate slots: no space to create enough ranges, game over, consider saving this score to local history.")
-                                    }
+                        (Ok(idx), Ok(val)) => match game.place((idx - 1) as usize, val) {
+                            Ok(_) => (),
+                            Err(e) => match e {
+                                PlaceItError::SlotTaken => {
+                                    eprintln!("ERR: Slot {} already set, not changing", idx);
                                 }
-                            }
-                        }
+                                PlaceItError::GameOver => {
+                                    eprintln!("ERR: Cannot generate slots: no space to create enough ranges, game over, consider saving this score to local history.")
+                                }
+                            },
+                        },
                         _ => {
                             eprintln!("ERR: Non-integer vals passed to place")
                         }
                     }
-                    if game.slots.iter().all(|s| match s { Slot::Set(_) => true, Slot::Range(_) => false }) {
+                    if game.slots.iter().all(|s| match s {
+                        Slot::Set(_) => true,
+                        Slot::Range(_) => false,
+                    }) {
                         eprintln!("INFO: The whole board is full, you win! Consider saving this score to local history.");
                     }
                 }
@@ -281,18 +306,70 @@ fn main() {
                 } else {
                     match split[1].parse::<i32>() {
                         Ok(val) => match game.find_best_placement(val) {
-                            Some(idx) => {
+                            Ok(idx) => {
                                 println!(
                                     "Best slot for {val} is {}: {:?}",
                                     idx + 1,
                                     game.slots[idx]
                                 );
                             }
-                            None => {
-                                eprintln!(
-                                    "ERR: Value {val} is outside of the current game's slots."
-                                );
-                            }
+                            Err(e) => match e {
+                                FindError::OutOfRange(sug) => {
+                                    eprintln!(
+                                        "Error when finding best placement: {e:?} (suggests {sug})"
+                                    );
+                                }
+                                _ => {
+                                    eprintln!("Error when finding best placement: {e:?}");
+                                }
+                            },
+                        },
+                        _ => {
+                            eprintln!("ERR: Non-integer vals passed to place")
+                        }
+                    }
+                }
+            }
+            _ if fplace_regex.is_match(c) => {
+                let split: Vec<_> = c.split(' ').collect();
+                if split.len() != 2 {
+                    eprintln!(
+                        "ERR: Not enough params for place (got {} required 2)",
+                        split.len()
+                    )
+                } else {
+                    match split[1].parse::<i32>() {
+                        Ok(val) => match game.find_best_placement(val) {
+                            Ok(idx) => {
+                                let old = game.slots.clone();
+                                match game.place((idx) as usize, val) {
+                                    Ok(_) => {
+                                        println!(
+                                            "Placed {val} in {}: {:?}",
+                                            idx + 1,
+                                            old[idx]
+                                        );
+                                    },
+                                    Err(e) => match e {
+                                        PlaceItError::SlotTaken => {
+                                            eprintln!("ERR: Slot {} already set, not changing", idx);
+                                        }
+                                        PlaceItError::GameOver => {
+                                            eprintln!("ERR: Cannot generate slots: no space to create enough ranges, game over, consider saving this score to local history.")
+                                        }
+                                    },
+                                }
+                            },
+                            Err(e) => match e {
+                                FindError::OutOfRange(sug) => {
+                                    eprintln!(
+                                        "Error when finding best placement: {e:?} (suggests {sug})"
+                                    );
+                                }
+                                _ => {
+                                    eprintln!("Error when finding best placement: {e:?}");
+                                }
+                            },
                         },
                         _ => {
                             eprintln!("ERR: Non-integer vals passed to place")
@@ -301,11 +378,38 @@ fn main() {
                 }
             }
             "n" | "new" => {
+                let set = game
+                    .slots
+                    .iter()
+                    .filter_map(|slot| match slot {
+                        Slot::Set(val) => Some(val),
+                        Slot::Range(_) => None,
+                    })
+                    .copied()
+                    .collect_vec();
+
+                history.entry(set.len() as u32).or_insert((0, set)).0 += 1;
+
                 game = PlaceIt::new(PlaceIt::gen_slots(SLOTS_COUNT, VAL_RANGE.clone()).unwrap());
                 println!(
                     "INFO: Starting new game of PlaceIt (slots: {}, range: {:?})",
                     SLOTS_COUNT, VAL_RANGE
                 );
+            }
+            "H" | "history" => {
+                let list = history
+                    .iter()
+                    .sorted_by(|cur, other| return cur.0.cmp(&other.0))
+                    .rev()
+                    .collect::<Vec<_>>();
+                for (score, (count, vals)) in list {
+                    println!(
+                        "{}: {} {:?}",
+                        score,
+                        count,
+                        vals.iter().sorted().collect::<Vec<_>>()
+                    )
+                }
             }
             "l" | "list" => {
                 println!(
