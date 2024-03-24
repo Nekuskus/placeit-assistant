@@ -16,7 +16,7 @@ if os.name != 'nt':
 
 p = subprocess.Popen(["target\\release\\placeit-assistant.exe"], encoding='utf-8', stdout = subprocess.PIPE, stdin = subprocess.PIPE, stderr = subprocess.STDOUT)
 
-n = 10
+n = 100
 if len(sys.argv) > 0 and sys.argv[1].isdigit():
     n = int(sys.argv[1])
 
