@@ -59,6 +59,4 @@ for i in range(n):
             p.stdin.write(f'n\n') # just for sanity
         # print(f"Finished game {i}")
 
-p.stdin.write('q\n')
-
-exit(0)
+exit(p.communicate('q\n'))

@@ -194,14 +194,20 @@ impl PlaceIt {
             _ => {
                 let total = range.start().abs_diff(*range.end()) + 1;
                 let slot_length = total / count;
-                let remainder = total % count;
+                let mut remainder = total % count;
 
                 let mut v = vec![];
 
                 // I could do this with math but I prefer iterators to do this for me in a not error-prone manner
+                                
                 for _ in 0..count - 1 {
                     let first = range.next().unwrap();
-                    range = range.dropping((slot_length - 2) as usize);
+                    if remainder > 0 {
+                        range = range.dropping((slot_length + 1 - 2) as usize);
+                        remainder -= 1;
+                    } else {
+                        range = range.dropping((slot_length - 2) as usize);
+                    }
                     let last = range.next().unwrap();
                     v.push(Slot::Range(first..=last));
                 }
@@ -214,7 +220,7 @@ impl PlaceIt {
                     }
                 };
                 let last = range
-                    .dropping((skip_count + remainder) as usize)
+                    .dropping((skip_count) as usize)
                     .next()
                     .unwrap();
                 v.push(Slot::Range(first..=last));

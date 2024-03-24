@@ -43,9 +43,9 @@ dependencies = [
 
 [[package]]
 name = "kusprint"
-version = "1.0.1"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1cfa5abbd301bea5b6bc056638fbe0a116b4a199c5e619d87d361a39a32fe7a"
+checksum = "a92366765cb6f7daee3a83a1e70264f45c8285a348ba344ff752c3d8afea7556"
 
 [[package]]
 name = "libc"
