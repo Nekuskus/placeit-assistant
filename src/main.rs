@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::io::{stdin, stdout, Write};
 use std::ops::RangeInclusive;
 
-extern crate term_cursor as cursor;
+use std::fs::{OpenOptions, read_to_string};
+use std::path::Path;
 
 const PROMPT: &str = "$";
 static SLOTS_COUNT: u32 = 20;
@@ -21,9 +22,10 @@ enum Slot {
 #[derive(Debug)]
 enum FindError {
     Frozen,
-    GameWon,
+    GameAlreadyWon,
+    GameOver,
     AlreadyPlaced,
-    OutOfRange(usize),
+    OutOfRange,
 }
 
 enum PlaceItError {
@@ -54,7 +56,7 @@ impl PlaceIt {
             Slot::Set(_) => true,
             Slot::Range(_) => false,
         }) {
-            return Err(GameWon); // game already won, board is all set
+            return Err(GameAlreadyWon); // game already won, board is all set
         } else if self.slots.iter().all(|s| match s {
             Slot::Set(set) => val == *set,
             Slot::Range(_) => false,
@@ -84,7 +86,11 @@ impl PlaceIt {
                 return Ok(idx);
             }
             Err(v) => {
-                return Err(OutOfRange(v));
+                if (v == 0 && match self.slots[0] { Slot::Range(_) => true, _ => false }) || v >= self.slots.len() {
+                    return Err(OutOfRange);
+                } else {
+                    return Err(GameOver);
+                }
             }
         }
     }
@@ -226,8 +232,20 @@ fn flush_stdout() {
         .unwrap();
 }
 
+pub fn read_file(filename: &Path) -> String {
+    read_to_string(filename) 
+        .unwrap()  // panic on possible file-reading errors
+        .lines()  // split the string into an iterator of string slices
+        .map(|s| s.trim().to_owned())
+        .collect()  // gather them together into a vector
+}
+
 fn main() {
     let mut history: HashMap<u32, (u32, Vec<i32>)> = HashMap::new();
+
+    if Path::new("history.ron").exists() {
+        history = ron::from_str(read_file(Path::new("history.ron")).as_str()).unwrap();
+    }
 
     let mut game = PlaceIt::new(PlaceIt::gen_slots(SLOTS_COUNT, VAL_RANGE.clone()).unwrap());
     println!("PlaceIt-Assistant shell (h for help):");
@@ -237,7 +255,6 @@ fn main() {
     );
     expr_print!(PROMPT);
     flush_stdout();
-    let (twidth, _theight) = term_size::dimensions().unwrap();
     let mut line = String::from("");
 
     let place_regex = Regex::new(r"(?:p|place) \d+ \d+").unwrap();
@@ -280,7 +297,7 @@ fn main() {
                                     eprintln!("ERR: Slot {} already set, not changing", idx);
                                 }
                                 PlaceItError::GameOver => {
-                                    eprintln!("ERR: Cannot generate slots: no space to create enough ranges, game over, consider saving this score to local history.")
+                                    eprintln!("ERR: Cannot generate slots: no space to create enough ranges. Game over, consider saving this score to local history.")
                                 }
                             },
                         },
@@ -314,13 +331,11 @@ fn main() {
                                 );
                             }
                             Err(e) => match e {
-                                FindError::OutOfRange(sug) => {
-                                    eprintln!(
-                                        "Error when finding best placement: {e:?} (suggests {sug})"
-                                    );
+                                FindError::GameOver => {
+                                    eprintln!("Placing {val} would cause a gameover.")
                                 }
                                 _ => {
-                                    eprintln!("Error when finding best placement: {e:?}");
+                                    eprintln!("ERR: Error when finding best placement: {e:?}");
                                 }
                             },
                         },
@@ -361,13 +376,11 @@ fn main() {
                                 }
                             },
                             Err(e) => match e {
-                                FindError::OutOfRange(sug) => {
-                                    eprintln!(
-                                        "Error when finding best placement: {e:?} (suggests {sug})"
-                                    );
+                                FindError::GameOver | FindError::OutOfRange => {
+                                    eprintln!("ERR: Cannot place value, game over, consider saving this score to local history.")
                                 }
                                 _ => {
-                                    eprintln!("Error when finding best placement: {e:?}");
+                                    eprintln!("ERR: Error when finding best placement: {e:?}");
                                 }
                             },
                         },
@@ -389,6 +402,13 @@ fn main() {
                     .collect_vec();
 
                 history.entry(set.len() as u32).or_insert((0, set)).0 += 1;
+
+                
+                let file = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .open("history.ron").unwrap();
+                ron::ser::to_writer(file, &history).unwrap();
 
                 game = PlaceIt::new(PlaceIt::gen_slots(SLOTS_COUNT, VAL_RANGE.clone()).unwrap());
                 println!(
@@ -424,13 +444,7 @@ fn main() {
             "q" => {
                 return;
             }
-            _ => {
-                expr_print!(
-                    cursor::Up(1),
-                    " ".repeat(twidth),
-                    cursor::Left(twidth as i32 - 1)
-                );
-            }
+            _ => { }
         }
         expr_print!(PROMPT);
         flush_stdout();
