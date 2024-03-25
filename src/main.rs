@@ -234,7 +234,7 @@ impl PlaceIt {
 fn flush_stdout() {
     stdout()
         .flush()
-        .inspect_err(|e| eprintln!("ERR: Error flushing terminal: {}", e))
+        .expect_err("ERR: Error flushing terminal")
         .unwrap();
 }
 
@@ -270,8 +270,7 @@ fn main() {
     loop {
         stdin()
             .read_line(&mut line)
-            .inspect_err(|e| eprintln!("ERR: Error while reading: {}", e))
-            .unwrap();
+            .expect_err("ERR: Error while reading:");
         let c = line.as_str().trim();
         match c {
             "h" | "help" => {
