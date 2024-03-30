@@ -289,8 +289,7 @@ impl PlaceIt {
 fn flush_stdout() {
     stdout()
         .flush()
-        .expect_err("ERR: Error flushing terminal")
-        .unwrap();
+        .expect_err("ERR: Error flushing terminal");
 }
 
 fn read_file(filename: &Path) -> String {
