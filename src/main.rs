@@ -289,7 +289,7 @@ impl PlaceIt {
 fn flush_stdout() {
     stdout()
         .flush()
-        .expect_err("ERR: Error flushing terminal");
+        .expect("ERR: Error flushing terminal");
 }
 
 fn read_file(filename: &Path) -> String {
@@ -488,7 +488,7 @@ fn main() {
     loop {
         stdin()
             .read_line(&mut line)
-            .expect_err("ERR: Error while reading:");
+            .expect("ERR: Error while reading");
         let c = line.as_str().trim();
         match c {
             "h" | "help" => {
